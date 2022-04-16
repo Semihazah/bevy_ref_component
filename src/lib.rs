@@ -2,7 +2,7 @@ use std::{any::type_name, marker::PhantomData, sync::Arc};
 
 use bevy::{
     ecs::{reflect::ReflectComponent, system::Command},
-    prelude::{App, Commands, Component, Entity, FromWorld, Plugin, Res, World},
+    prelude::{App, Commands, Component, Entity, FromWorld, Plugin, Res, World, Query},
     reflect::{FromReflect, Reflect, ReflectDeserialize},
     utils::{HashMap, HashSet},
 };
@@ -62,24 +62,26 @@ impl RefComponentServer {
 // Systems
 // *****************************************************************************************
 fn write_used_components(mut commands: Commands, server: Res<RefComponentServer>) {
-    let mut delete_queue = server.insert_queue.write();
-    for handle_id in delete_queue.iter() {
+    let mut insert_queue = server.insert_queue.write();
+    for handle_id in insert_queue.iter() {
         if let Some(spawner) = server.comp_spawner.get(&handle_id.type_id) {
             (spawner.spawn)(&mut commands, handle_id.entity);
         }
     }
 
-    delete_queue.clear();
+    insert_queue.clear();
 }
 
-fn free_unused_components(mut commands: Commands, server: Res<RefComponentServer>) {
+fn free_unused_components(mut commands: Commands, server: Res<RefComponentServer>, valid_query: Query<Entity>) {
     let mut potential_frees = server.mark_unused_assets.lock();
     if !potential_frees.is_empty() {
         let ref_counts = server.ref_counts.read();
         for potential_free in potential_frees.drain(..) {
             if let Some(&0) = ref_counts.get(&potential_free) {
                 if let Some(spawner) = server.comp_spawner.get(&potential_free.type_id) {
-                    (spawner.delete)(&mut commands, potential_free.entity);
+                    if valid_query.get(potential_free.entity).is_ok() {
+                        (spawner.delete)(&mut commands, potential_free.entity);
+                    }
                 }
             }
         }
@@ -101,10 +103,11 @@ fn mark_unused_assets(server: Res<RefComponentServer>) {
             RefChange::Decrement(handle_id) => {
                 let entry = ref_counts.entry(handle_id.clone()).or_insert(0);
                 *entry -= 1;
-                if *entry == 0 {
+                if *entry <= 0 {
                     potential_frees
                         .get_or_insert_with(|| server.mark_unused_assets.lock())
-                        .push(handle_id);
+                        .push(handle_id.clone());
+                    ref_counts.remove(&handle_id);
                 }
             }
         }
