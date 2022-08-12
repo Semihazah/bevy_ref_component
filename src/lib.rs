@@ -2,22 +2,48 @@ use std::{any::type_name, marker::PhantomData, sync::Arc};
 
 use bevy::{
     ecs::{reflect::ReflectComponent, system::Command},
-    prelude::{App, Commands, Component, Entity, FromWorld, Plugin, Res, World, Query},
-    reflect::{FromReflect, Reflect, ReflectSerialize, ReflectDeserialize},
+    prelude::{
+        App, Commands, Component, CoreStage, Entity, FromWorld, ParallelSystemDescriptorCoercion,
+        Plugin, Query, Res, SystemLabel, World,
+    },
+    reflect::{FromReflect, Reflect, ReflectDeserialize},
     utils::{HashMap, HashSet},
 };
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+mod tests;
+
+#[derive(SystemLabel, Clone, Hash, PartialEq, Eq, Debug)]
+pub enum Labels {
+    Write,
+    MarkFree,
+    Free,
+}
+
 pub struct RefComponentPlugin;
 
 impl Plugin for RefComponentPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RefComponentServer>()
-            .add_system(write_used_components)
-            .add_system(free_unused_components)
-            .add_system(mark_unused_assets);
+            .add_system_to_stage(
+                CoreStage::PostUpdate,
+                write_used_components.label(Labels::Write),
+            )
+            .add_system_to_stage(
+                CoreStage::PostUpdate,
+                mark_unused_assets
+                    .label(Labels::MarkFree)
+                    .after(Labels::Write),
+            )
+            .add_system_to_stage(
+                CoreStage::PostUpdate,
+                free_unused_components
+                    .label(Labels::Free)
+                    .after(Labels::MarkFree),
+            );
     }
 }
 // *****************************************************************************************
@@ -72,16 +98,17 @@ fn write_used_components(mut commands: Commands, server: Res<RefComponentServer>
     insert_queue.clear();
 }
 
-fn free_unused_components(mut commands: Commands, server: Res<RefComponentServer>, valid_query: Query<Entity>) {
+fn free_unused_components(
+    mut commands: Commands,
+    server: Res<RefComponentServer>,
+    valid_query: Query<Entity>,
+) {
     let mut potential_frees = server.mark_unused_assets.lock();
     if !potential_frees.is_empty() {
-        let ref_counts = server.ref_counts.read();
         for potential_free in potential_frees.drain(..) {
-            if let Some(&0) = ref_counts.get(&potential_free) {
-                if let Some(spawner) = server.comp_spawner.get(&potential_free.type_id) {
-                    if valid_query.get(potential_free.entity).is_ok() {
-                        (spawner.delete)(&mut commands, potential_free.entity);
-                    }
+            if let Some(spawner) = server.comp_spawner.get(&potential_free.type_id) {
+                if valid_query.get(potential_free.entity).is_ok() {
+                    (spawner.delete)(&mut commands, potential_free.entity);
                 }
             }
         }
@@ -103,7 +130,7 @@ fn mark_unused_assets(server: Res<RefComponentServer>) {
             RefChange::Decrement(handle_id) => {
                 let entry = ref_counts.entry(handle_id.clone()).or_insert(0);
                 *entry -= 1;
-                if *entry <= 0 {
+                if *entry == 0 {
                     potential_frees
                         .get_or_insert_with(|| server.mark_unused_assets.lock())
                         .push(handle_id.clone());
