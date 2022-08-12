@@ -3,7 +3,7 @@ use std::{any::type_name, marker::PhantomData, sync::Arc};
 use bevy::{
     ecs::{reflect::ReflectComponent, system::Command},
     prelude::{App, Commands, Component, Entity, FromWorld, Plugin, Res, World, Query},
-    reflect::{FromReflect, Reflect, ReflectDeserialize},
+    reflect::{FromReflect, Reflect, ReflectSerialize, ReflectDeserialize},
     utils::{HashMap, HashSet},
 };
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
