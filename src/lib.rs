@@ -58,7 +58,7 @@ pub struct RefComponentServer {
 }
 
 impl RefComponentServer {
-    pub fn get_handle<T: Component + FromWorld, I: Into<RefCompHandleId>>(
+    pub fn get_handle<T: Component, I: Into<RefCompHandleId>>(
         &self,
         id: I,
     ) -> RefCompHandle<T> {
@@ -71,7 +71,7 @@ impl RefComponentServer {
         RefCompHandleUntyped::strong(id.into(), sender)
     }
 
-    pub fn add_ref_comp_world<T: Component + FromWorld>(&mut self, world: &mut World, entity: Entity) -> RefCompHandle<T> {
+    fn inner_add_ref_comp_from_world<T: Component + FromWorld>(&mut self, world: &mut World, entity: Entity) -> RefCompHandle<T> {
         let ref_counts = &self.ref_counts;
         let handle_id = RefCompHandleId::new::<T>(entity);
 
@@ -90,7 +90,25 @@ impl RefComponentServer {
         self.get_handle(handle_id)
     }
     
-    pub fn add_ref_comp<T: Component + FromWorld>(&mut self, commands: &mut Commands, entity: Entity) -> RefCompHandle<T> {
+    fn inner_add_ref_comp<T: Component>(&mut self, world: &mut World, entity: Entity, insert_fn: fn(&mut World, Entity)) -> RefCompHandle<T> {
+        let ref_counts = &self.ref_counts;
+        let handle_id = RefCompHandleId::new::<T>(entity);
+
+        if !ref_counts.contains_key(&handle_id) {
+            if !self.comp_spawner.contains_key(&handle_id.type_id) {
+                self.comp_spawner.insert(
+                    type_name::<T>().to_string(),
+                    RefComponentSpawner {
+                        delete: delete_component::<T>,
+                    }
+                );
+            }
+            insert_fn(world, handle_id.entity);
+        }
+        self.get_handle(handle_id)
+    }
+
+    pub fn add_ref_comp_from_world<T: Component + FromWorld>(&mut self, commands: &mut Commands, entity: Entity) -> RefCompHandle<T> {
         let ref_counts = &self.ref_counts;
         let handle_id = RefCompHandleId::new::<T>(entity);
 
@@ -107,6 +125,24 @@ impl RefComponentServer {
                 let comp = T::from_world(world);
                 world.entity_mut(handle_id.entity).insert(comp);
             });
+        }
+        self.get_handle(handle_id)
+    }
+
+    pub fn add_ref_comp<T: Component>(&mut self, commands: &mut Commands,entity: Entity, insert_fn: fn(&mut Commands, Entity)) -> RefCompHandle<T> {
+        let ref_counts = &self.ref_counts;
+        let handle_id = RefCompHandleId::new::<T>(entity);
+
+        if !ref_counts.contains_key(&handle_id) {
+            if !self.comp_spawner.contains_key(&handle_id.type_id) {
+                self.comp_spawner.insert(
+                    type_name::<T>().to_string(),
+                    RefComponentSpawner {
+                        delete: delete_component::<T>,
+                    }
+                );
+            }
+            insert_fn(commands, handle_id.entity);
         }
         self.get_handle(handle_id)
     }
@@ -179,13 +215,20 @@ fn mark_unused_assets(
 // App
 // *****************************************************************************************
 pub trait RefCompExt {
-    fn insert_ref_comp<T: Component + FromWorld>(&mut self, entity: Entity) -> RefCompHandle<T>;
+    fn insert_ref_comp_from_world<T: Component + FromWorld>(&mut self, entity: Entity) -> RefCompHandle<T>;
+    fn insert_ref_comp<T: Component>(&mut self, entity: Entity, insert_fn: fn(&mut World, Entity)) -> RefCompHandle<T>;
 }
 
 impl RefCompExt for World {
-    fn insert_ref_comp<T: Component + FromWorld>(&mut self, entity: Entity) -> RefCompHandle<T> {
+    fn insert_ref_comp_from_world<T: Component + FromWorld>(&mut self, entity: Entity) -> RefCompHandle<T> {
         return self.resource_scope(|world, mut ref_comp_server: Mut<RefComponentServer>| {
-            ref_comp_server.add_ref_comp_world::<T>(world, entity)
+            ref_comp_server.inner_add_ref_comp_from_world::<T>(world, entity)
+        });
+    }
+
+    fn insert_ref_comp<T: Component>(&mut self, entity: Entity, insert_fn: fn(&mut World, Entity)) -> RefCompHandle<T> {
+        return self.resource_scope(|world, mut ref_comp_server: Mut<RefComponentServer>| {
+            ref_comp_server.inner_add_ref_comp::<T>(world, entity, insert_fn)
         });
     }
 }
@@ -222,7 +265,7 @@ pub struct RefCompHandleId {
 
 impl RefCompHandleId {
     #[inline]
-    pub fn default<T: Component + FromWorld>() -> Self {
+    pub fn default<T: Component>() -> Self {
         RefCompHandleId {
             entity: Entity::from_raw(u32::MAX),
             type_id: "".to_string(),
@@ -230,7 +273,7 @@ impl RefCompHandleId {
     }
 
     #[inline]
-    pub fn new<T: Component + FromWorld>(entity: Entity) -> Self {
+    pub fn new<T: Component>(entity: Entity) -> Self {
         RefCompHandleId {
             entity,
             type_id: type_name::<T>().to_string(),
@@ -238,7 +281,7 @@ impl RefCompHandleId {
     }
 }
 
-impl<T: Component + FromWorld> RefCompHandle<T> {
+impl<T: Component> RefCompHandle<T> {
     fn strong(id: RefCompHandleId, ref_change_sender: Sender<RefChange>) -> Self {
         ref_change_sender
             .send(RefChange::Increment(id.clone()))
@@ -260,7 +303,7 @@ impl<T: Component + FromWorld> RefCompHandle<T> {
     }
 
     /// Get a copy of this handle as a Weak handle
-    pub fn as_weak<U: Component + FromWorld>(&self) -> RefCompHandle<U> {
+    pub fn as_weak<U: Component>(&self) -> RefCompHandle<U> {
         RefCompHandle {
             id: self.id.clone(),
             handle_type: RefCompHandleType::Weak,
@@ -307,7 +350,7 @@ impl<T: Component + FromWorld> RefCompHandle<T> {
     }
 }
 
-impl<T: Component + FromWorld> Drop for RefCompHandle<T> {
+impl<T: Component> Drop for RefCompHandle<T> {
     fn drop(&mut self) {
         match self.handle_type {
             RefCompHandleType::Strong(ref sender) => {
@@ -324,7 +367,7 @@ impl<T: Component + FromWorld> Drop for RefCompHandle<T> {
 #[reflect(Component)]
 pub struct RefCompHandle<T>
 where
-    T: Component + FromWorld,
+    T: Component,
 {
     /// The ID of the asset as contained within its respective [Assets](crate::Assets) collection
     pub id: RefCompHandleId,
@@ -335,13 +378,13 @@ where
     marker: PhantomData<fn() -> T>,
 }
 
-impl<T: Component + FromWorld> Default for RefCompHandle<T> {
+impl<T: Component> Default for RefCompHandle<T> {
     fn default() -> Self {
         RefCompHandle::weak(RefCompHandleId::default::<T>())
     }
 }
 
-impl<T: Component + FromWorld> std::fmt::Debug for RefCompHandle<T> {
+impl<T: Component> std::fmt::Debug for RefCompHandle<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         let name = std::any::type_name::<T>().split("::").last().unwrap();
         write!(
@@ -352,7 +395,7 @@ impl<T: Component + FromWorld> std::fmt::Debug for RefCompHandle<T> {
     }
 }
 
-impl<T: Component + FromWorld> Clone for RefCompHandle<T> {
+impl<T: Component> Clone for RefCompHandle<T> {
     fn clone(&self) -> Self {
         match self.handle_type {
             RefCompHandleType::Strong(ref sender) => {
@@ -370,7 +413,7 @@ pub struct RefCompHandleUntyped {
 }
 
 impl RefCompHandleUntyped {
-    pub fn weak_from_entity<T: Component + FromWorld>(entity: Entity) -> Self {
+    pub fn weak_from_entity<T: Component>(entity: Entity) -> Self {
         Self {
             id: RefCompHandleId::new::<T>(entity),
             handle_type: RefCompHandleType::Weak,
@@ -409,7 +452,7 @@ impl RefCompHandleUntyped {
     /// Convert this handle into a typed [Handle].
     ///
     /// The new handle will maintain the Strong or Weak status of the current handle.
-    pub fn typed<T: Component + FromWorld>(mut self) -> RefCompHandle<T> {
+    pub fn typed<T: Component>(mut self) -> RefCompHandle<T> {
         let handle_type = match &self.handle_type {
             RefCompHandleType::Strong(sender) => RefCompHandleType::Strong(sender.clone()),
             RefCompHandleType::Weak => RefCompHandleType::Weak,
@@ -461,11 +504,11 @@ struct RefComponentSpawner {
 // *****************************************************************************************
 // Functions
 // *****************************************************************************************
-fn delete_component<T: Component + FromWorld>(commands: &mut Commands, entity: Entity) {
+fn delete_component<T: Component>(commands: &mut Commands, entity: Entity) {
     commands.entity(entity).remove::<T>();
 }
 
-struct SpawnComponentCommand<T: Component + FromWorld> {
+struct SpawnComponentCommand<T: Component> {
     entity: Entity,
     phantom_data: PhantomData<T>,
 }
