@@ -1,16 +1,16 @@
-use std::{any::type_name, marker::PhantomData, sync::Arc};
+use std::{any::type_name, marker::PhantomData};
 
 use bevy::{
     ecs::{reflect::ReflectComponent, system::Command},
     prelude::{
         App, Commands, Component, CoreStage, Entity, FromWorld, ParallelSystemDescriptorCoercion,
-        Plugin, Query, Res, SystemLabel, World,
+        Plugin, Query, SystemLabel, World, ResMut, Mut,
     },
     reflect::{FromReflect, Reflect, ReflectDeserialize},
-    utils::{HashMap, HashSet},
+    utils::HashMap,
 };
-use crossbeam_channel::{Receiver, Sender, TryRecvError};
-use parking_lot::{Mutex, RwLock};
+use crossbeam_channel::{Receiver, Sender};
+
 use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
@@ -28,22 +28,23 @@ pub struct RefComponentPlugin;
 impl Plugin for RefComponentPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RefComponentServer>()
-            .add_system_to_stage(
+/*             .add_system_to_stage(
                 CoreStage::PostUpdate,
                 write_used_components.label(Labels::Write),
-            )
+            ) */
             .add_system_to_stage(
                 CoreStage::PostUpdate,
                 mark_unused_assets
                     .label(Labels::MarkFree)
                     .after(Labels::Write),
             )
-            .add_system_to_stage(
+/*             .add_system_to_stage(
                 CoreStage::PostUpdate,
                 free_unused_components
                     .label(Labels::Free)
                     .after(Labels::MarkFree),
-            );
+            ) */
+        ;
     }
 }
 // *****************************************************************************************
@@ -51,11 +52,9 @@ impl Plugin for RefComponentPlugin {
 // *****************************************************************************************
 #[derive(Default)]
 pub struct RefComponentServer {
-    channel: Arc<RefChangeChannel>,
-    ref_counts: Arc<RwLock<HashMap<RefCompHandleId, usize>>>,
-    mark_unused_assets: Arc<Mutex<Vec<RefCompHandleId>>>,
+    channel: RefChangeChannel,
+    ref_counts: HashMap<RefCompHandleId, usize>,
     comp_spawner: HashMap<String, RefComponentSpawner>,
-    insert_queue: Arc<RwLock<HashSet<RefCompHandleId>>>,
 }
 
 impl RefComponentServer {
@@ -72,13 +71,42 @@ impl RefComponentServer {
         RefCompHandleUntyped::strong(id.into(), sender)
     }
 
-    pub fn add_ref_comp<T: Component + FromWorld>(&self, entity: Entity) -> RefCompHandle<T> {
-        let ref_counts = self.ref_counts.read();
+    pub fn add_ref_comp_world<T: Component + FromWorld>(&mut self, world: &mut World, entity: Entity) -> RefCompHandle<T> {
+        let ref_counts = &self.ref_counts;
         let handle_id = RefCompHandleId::new::<T>(entity);
 
         if !ref_counts.contains_key(&handle_id) {
-            let mut insert_queue = self.insert_queue.write();
-            insert_queue.insert(handle_id.clone());
+            if !self.comp_spawner.contains_key(&handle_id.type_id) {
+                self.comp_spawner.insert(
+                    type_name::<T>().to_string(),
+                    RefComponentSpawner {
+                        delete: delete_component::<T>,
+                    }
+                );
+            }
+            let comp = T::from_world(world);
+            world.entity_mut(handle_id.entity).insert(comp);
+        }
+        self.get_handle(handle_id)
+    }
+    
+    pub fn add_ref_comp<T: Component + FromWorld>(&mut self, commands: &mut Commands, entity: Entity) -> RefCompHandle<T> {
+        let ref_counts = &self.ref_counts;
+        let handle_id = RefCompHandleId::new::<T>(entity);
+
+        if !ref_counts.contains_key(&handle_id) {
+            if !self.comp_spawner.contains_key(&handle_id.type_id) {
+                self.comp_spawner.insert(
+                    type_name::<T>().to_string(),
+                    RefComponentSpawner {
+                        delete: delete_component::<T>,
+                    }
+                );
+            }
+            commands.add(move|world: &mut World| {
+                let comp = T::from_world(world);
+                world.entity_mut(handle_id.entity).insert(comp);
+            });
         }
         self.get_handle(handle_id)
     }
@@ -87,7 +115,7 @@ impl RefComponentServer {
 // *****************************************************************************************
 // Systems
 // *****************************************************************************************
-fn write_used_components(mut commands: Commands, server: Res<RefComponentServer>) {
+/* fn write_used_components(mut commands: Commands, server: Res<RefComponentServer>) {
     let mut insert_queue = server.insert_queue.write();
     for handle_id in insert_queue.iter() {
         if let Some(spawner) = server.comp_spawner.get(&handle_id.type_id) {
@@ -114,61 +142,53 @@ fn free_unused_components(
         }
     }
 }
-
-fn mark_unused_assets(server: Res<RefComponentServer>) {
-    let receiver = &server.channel.receiver;
-    let mut ref_counts = server.ref_counts.write();
-    let mut potential_frees = None;
-    loop {
-        let ref_change = match receiver.try_recv() {
-            Ok(ref_change) => ref_change,
-            Err(TryRecvError::Empty) => break,
-            Err(TryRecvError::Disconnected) => panic!("RefChange channel disconnected."),
-        };
+ */
+fn mark_unused_assets(
+    mut server: ResMut<RefComponentServer>,
+    valid_query: Query<Entity>,
+    mut commands: Commands,
+) {
+    let ref_changes: Vec<RefChange> = server.channel.receiver.try_iter().collect();
+    let ref_counts = &mut server.ref_counts;
+    let mut despawn_list: Vec<RefCompHandleId> = Vec::new();
+    for ref_change in ref_changes {
         match ref_change {
             RefChange::Increment(handle_id) => *ref_counts.entry(handle_id).or_insert(0) += 1,
             RefChange::Decrement(handle_id) => {
                 let entry = ref_counts.entry(handle_id.clone()).or_insert(0);
                 *entry -= 1;
                 if *entry == 0 {
-                    potential_frees
-                        .get_or_insert_with(|| server.mark_unused_assets.lock())
-                        .push(handle_id.clone());
                     ref_counts.remove(&handle_id);
+                    despawn_list.push(handle_id);
                 }
             }
         }
     }
+    let comp_spawner = &server.comp_spawner;
+    for handle_id in despawn_list {
+        if let Some(spawner) = comp_spawner.get(&handle_id.type_id) {
+            if valid_query.get(handle_id.entity).is_ok() {
+                (spawner.delete)(&mut commands, handle_id.entity);
+            }
+        }
+    }
+
 }
 
 // *****************************************************************************************
 // App
 // *****************************************************************************************
-pub trait AddRefComponentExt {
-    fn add_ref_component_type<T: Component + FromWorld>(&mut self) -> &mut Self;
+pub trait RefCompExt {
+    fn insert_ref_comp<T: Component + FromWorld>(&mut self, entity: Entity) -> RefCompHandle<T>;
 }
 
-impl AddRefComponentExt for App {
-    fn add_ref_component_type<T: Component + FromWorld>(&mut self) -> &mut Self {
-        self.world.add_ref_component_type::<T>();
-        self
+impl RefCompExt for World {
+    fn insert_ref_comp<T: Component + FromWorld>(&mut self, entity: Entity) -> RefCompHandle<T> {
+        return self.resource_scope(|world, mut ref_comp_server: Mut<RefComponentServer>| {
+            ref_comp_server.add_ref_comp_world::<T>(world, entity)
+        });
     }
 }
-
-impl AddRefComponentExt for World {
-    fn add_ref_component_type<T: Component + FromWorld>(&mut self) -> &mut Self {
-        let mut ref_comp_server = self.get_resource_mut::<RefComponentServer>().unwrap();
-        ref_comp_server.comp_spawner.insert(
-            type_name::<T>().to_string(),
-            RefComponentSpawner {
-                spawn: spawn_component::<T>,
-                delete: delete_component::<T>,
-            },
-        );
-        self
-    }
-}
-
 // *****************************************************************************************
 // Structs
 // *****************************************************************************************
@@ -436,19 +456,11 @@ impl Default for RefChangeChannel {
 }
 
 struct RefComponentSpawner {
-    spawn: fn(&mut Commands, Entity),
     delete: fn(&mut Commands, Entity),
 }
 // *****************************************************************************************
 // Functions
 // *****************************************************************************************
-fn spawn_component<T: Component + FromWorld>(commands: &mut Commands, entity: Entity) {
-    commands.add(SpawnComponentCommand::<T> {
-        entity,
-        phantom_data: PhantomData,
-    });
-}
-
 fn delete_component<T: Component + FromWorld>(commands: &mut Commands, entity: Entity) {
     commands.entity(entity).remove::<T>();
 }
