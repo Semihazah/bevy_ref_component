@@ -1,7 +1,7 @@
 use std::{any::type_name, marker::PhantomData};
 
 use bevy::{
-    ecs::{reflect::ReflectComponent, system::Command},
+    ecs::reflect::ReflectComponent,
     prelude::{
         App, Commands, Component, CoreStage, Entity, FromWorld, Mut,
         ParallelSystemDescriptorCoercion, Plugin, Query, ResMut, SystemLabel, World,
@@ -16,6 +16,9 @@ use serde::{Deserialize, Serialize};
 #[cfg(test)]
 mod tests;
 
+mod builder;
+pub use builder::{RefCompBuilder, RefCompBuilderExt, RefCompBuilderFromWorldExt};
+
 type InsertFn<T> = fn(&mut World, Entity) -> T;
 type EditFn<T> = fn(&mut World, Entity, &mut T);
 
@@ -26,11 +29,11 @@ pub enum Labels {
     Free,
 }
 
-pub struct RefComponentPlugin;
+pub struct RefCompPlugin;
 
-impl Plugin for RefComponentPlugin {
+impl Plugin for RefCompPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<RefComponentServer>()
+        app.init_resource::<RefCompServer>()
 /*             .add_system_to_stage(
                 CoreStage::PostUpdate,
                 write_used_components.label(Labels::Write),
@@ -54,13 +57,13 @@ impl Plugin for RefComponentPlugin {
 // Resources
 // *****************************************************************************************
 #[derive(Default)]
-pub struct RefComponentServer {
+pub struct RefCompServer {
     channel: RefChangeChannel,
     ref_counts: HashMap<RefCompHandleId, usize>,
     comp_spawner: HashMap<String, RefComponentSpawner>,
 }
 
-impl RefComponentServer {
+impl RefCompServer {
     pub fn get_handle<T: Component, I: Into<RefCompHandleId>>(&self, id: I) -> RefCompHandle<T> {
         let sender = self.channel.sender.clone();
         RefCompHandle::strong(id.into(), sender)
@@ -71,7 +74,7 @@ impl RefComponentServer {
         RefCompHandleUntyped::strong(id.into(), sender)
     }
 
-    fn inner_add_ref_comp_from_world<T: Component + FromWorld>(
+    fn inner_insert_ref_comp_from_world<T: Component + FromWorld>(
         &mut self,
         world: &mut World,
         entity: Entity,
@@ -101,7 +104,7 @@ impl RefComponentServer {
         self.get_handle(handle_id)
     }
 
-    fn inner_add_ref_comp<T: Component>(
+    fn inner_insert_ref_comp<T: Component>(
         &mut self,
         world: &mut World,
         entity: Entity,
@@ -132,7 +135,7 @@ impl RefComponentServer {
         self.get_handle(handle_id)
     }
 
-    pub fn add_ref_comp_from_world<T: Component + FromWorld>(
+    pub fn insert_ref_comp_fw<T: Component + FromWorld>(
         &mut self,
         commands: &mut Commands,
         entity: Entity,
@@ -166,7 +169,7 @@ impl RefComponentServer {
         self.get_handle(handle_id)
     }
 
-    pub fn add_ref_comp<T: Component>(
+    pub fn insert_ref_comp<T: Component>(
         &mut self,
         commands: &mut Commands,
         entity: Entity,
@@ -234,7 +237,7 @@ fn free_unused_components(
 }
  */
 fn delete_unreferenced_components(
-    mut server: ResMut<RefComponentServer>,
+    mut server: ResMut<RefCompServer>,
     valid_query: Query<Entity>,
     mut commands: Commands,
 ) {
@@ -287,8 +290,8 @@ impl RefCompExt for World {
         entity: Entity,
         edit_fn: Option<EditFn<T>>,
     ) -> RefCompHandle<T> {
-        self.resource_scope(|world, mut ref_comp_server: Mut<RefComponentServer>| {
-            ref_comp_server.inner_add_ref_comp_from_world::<T>(world, entity, edit_fn)
+        self.resource_scope(|world, mut ref_comp_server: Mut<RefCompServer>| {
+            ref_comp_server.inner_insert_ref_comp_from_world::<T>(world, entity, edit_fn)
         })
     }
 
@@ -298,8 +301,8 @@ impl RefCompExt for World {
         insert_fn: InsertFn<T>,
         edit_fn: Option<EditFn<T>>,
     ) -> RefCompHandle<T> {
-        self.resource_scope(|world, mut ref_comp_server: Mut<RefComponentServer>| {
-            ref_comp_server.inner_add_ref_comp::<T>(world, entity, insert_fn, edit_fn)
+        self.resource_scope(|world, mut ref_comp_server: Mut<RefCompServer>| {
+            ref_comp_server.inner_insert_ref_comp::<T>(world, entity, insert_fn, edit_fn)
         })
     }
 }
@@ -393,7 +396,7 @@ impl<T: Component> RefCompHandle<T> {
     /// Makes this handle Strong if it wasn't already.
     ///
     /// This method requires the corresponding [Assets](crate::Assets) collection
-    pub fn make_strong(&mut self, server: &RefComponentServer) {
+    pub fn make_strong(&mut self, server: &RefCompServer) {
         if self.is_strong() {
             return;
         }
@@ -577,16 +580,4 @@ struct RefComponentSpawner {
 // *****************************************************************************************
 fn delete_component<T: Component>(commands: &mut Commands, entity: Entity) {
     commands.entity(entity).remove::<T>();
-}
-
-struct SpawnComponentCommand<T: Component> {
-    entity: Entity,
-    phantom_data: PhantomData<T>,
-}
-
-impl<T: Component + FromWorld> Command for SpawnComponentCommand<T> {
-    fn write(self, world: &mut World) {
-        let comp = T::from_world(world);
-        world.entity_mut(self.entity).insert(comp);
-    }
 }
