@@ -24,9 +24,7 @@ type EditFn<T> = fn(&mut World, Entity, &mut T);
 
 #[derive(SystemLabel, Clone, Hash, PartialEq, Eq, Debug)]
 pub enum Labels {
-    Write,
-    MarkFree,
-    Free,
+    RefCompFree,
 }
 
 pub struct RefCompPlugin;
@@ -41,8 +39,7 @@ impl Plugin for RefCompPlugin {
             .add_system_to_stage(
                 CoreStage::PostUpdate,
                 delete_unreferenced_components
-                    .label(Labels::MarkFree)
-                    .after(Labels::Write),
+                    .label(Labels::RefCompFree)
             )
 /*             .add_system_to_stage(
                 CoreStage::PostUpdate,
