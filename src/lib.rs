@@ -3,10 +3,10 @@ use std::{any::type_name, marker::PhantomData};
 use bevy::{
     ecs::reflect::ReflectComponent,
     prelude::{
-        App, Commands, Component, CoreStage, Entity, FromWorld, Mut,
-        ParallelSystemDescriptorCoercion, Plugin, Query, ResMut, SystemLabel, World,
+        App, Commands, Component, CoreStage, Entity, FromWorld, Mut, Plugin, Query, ResMut,
+        StageLabel, SystemStage, World,
     },
-    reflect::{FromReflect, Reflect, ReflectSerialize, ReflectDeserialize},
+    reflect::{FromReflect, Reflect, ReflectDeserialize, ReflectSerialize},
     utils::HashMap,
 };
 use crossbeam_channel::{Receiver, Sender};
@@ -22,32 +22,16 @@ pub use builder::{RefCompBuilder, RefCompBuilderExt, RefCompBuilderFromWorldExt}
 type InsertFn<T> = fn(&mut World, Entity) -> T;
 type EditFn<T> = fn(&mut World, Entity, &mut T);
 
-#[derive(SystemLabel, Clone, Hash, PartialEq, Eq, Debug)]
-pub enum Labels {
-    RefCompFree,
-}
-
 pub struct RefCompPlugin;
+
+#[derive(StageLabel)]
+pub struct DespawnStage;
 
 impl Plugin for RefCompPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RefCompServer>()
-/*             .add_system_to_stage(
-                CoreStage::PostUpdate,
-                write_used_components.label(Labels::Write),
-            ) */
-            .add_system_to_stage(
-                CoreStage::PostUpdate,
-                delete_unreferenced_components
-                    .label(Labels::RefCompFree)
-            )
-/*             .add_system_to_stage(
-                CoreStage::PostUpdate,
-                free_unused_components
-                    .label(Labels::Free)
-                    .after(Labels::MarkFree),
-            ) */
-        ;
+            .add_stage_after(CoreStage::Update, DespawnStage, SystemStage::parallel())
+            .add_system_to_stage(DespawnStage, delete_unreferenced_components);
     }
 }
 // *****************************************************************************************
