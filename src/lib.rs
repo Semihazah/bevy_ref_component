@@ -6,7 +6,7 @@ use bevy::{
         App, Commands, Component, CoreStage, Entity, FromWorld, Mut,
         ParallelSystemDescriptorCoercion, Plugin, Query, ResMut, SystemLabel, World,
     },
-    reflect::{FromReflect, Reflect, ReflectDeserialize},
+    reflect::{FromReflect, Reflect, ReflectSerialize, ReflectDeserialize},
     utils::HashMap,
 };
 use crossbeam_channel::{Receiver, Sender};
