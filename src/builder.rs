@@ -1,6 +1,6 @@
-use bevy::prelude::{Commands, Component, Entity, FromWorld};
+use bevy::prelude::{Commands, Component, Entity, FromWorld, World};
 
-use crate::{EditFn, InsertFn, RefCompHandle, RefCompServer};
+use crate::{EditFn, InsertFn, RefCompExt, RefCompHandle, RefCompServer};
 
 pub struct RefCompBuilder<T: Component> {
     entity: Entity,
@@ -16,6 +16,7 @@ pub trait RefCompBuilderExt<T: Component> {
         commands: &mut Commands,
         ref_comp_server: &mut RefCompServer,
     ) -> RefCompHandle<T>;
+    fn build_world(&mut self, world: &mut World) -> RefCompHandle<T>;
 }
 
 impl<T: Component> RefCompBuilderExt<T> for RefCompBuilder<T> {
@@ -41,6 +42,13 @@ impl<T: Component> RefCompBuilderExt<T> for RefCompBuilder<T> {
             .expect("Attempted to build without insert fn!");
         ref_comp_server.insert_ref_comp(commands, self.entity, insert_fn, self.edit_fn)
     }
+
+    fn build_world(&mut self, world: &mut World) -> RefCompHandle<T> {
+        let insert_fn = self
+            .insert_fn
+            .expect("Attempted to build without insert fn!");
+        world.insert_ref_comp(self.entity, insert_fn, self.edit_fn)
+    }
 }
 
 pub trait RefCompBuilderFromWorldExt<T: Component + FromWorld> {
@@ -52,6 +60,7 @@ pub trait RefCompBuilderFromWorldExt<T: Component + FromWorld> {
         commands: &mut Commands,
         ref_comp_server: &mut RefCompServer,
     ) -> RefCompHandle<T>;
+    fn build_world(&mut self, world: &mut World) -> RefCompHandle<T>;
 }
 
 impl<T: Component + FromWorld> RefCompBuilderFromWorldExt<T> for RefCompBuilder<T> {
@@ -80,6 +89,13 @@ impl<T: Component + FromWorld> RefCompBuilderFromWorldExt<T> for RefCompBuilder<
         match self.insert_fn {
             Some(i) => ref_comp_server.insert_ref_comp(commands, self.entity, i, self.edit_fn),
             None => ref_comp_server.insert_ref_comp_fw(commands, self.entity, self.edit_fn),
+        }
+    }
+
+    fn build_world(&mut self, world: &mut World) -> RefCompHandle<T> {
+        match self.insert_fn {
+            Some(i) => world.insert_ref_comp(self.entity, i, self.edit_fn),
+            None => world.insert_ref_comp_from_world(self.entity, self.edit_fn),
         }
     }
 }
