@@ -8,9 +8,14 @@ pub struct RefCompBuilder<T: Component> {
     edit_fn: Option<EditFn<T>>,
 }
 
+impl<T: Component> RefCompBuilder<T> {
+    pub fn with_edit_fn(mut self, edit_fn: EditFn<T>) -> Self {
+        self.edit_fn = Some(edit_fn);
+        self
+    }
+}
 pub trait RefCompBuilderExt<T: Component> {
     fn new(entity: Entity, insert_fn: InsertFn<T>) -> Self;
-    fn with_edit_fn(self, edit_fn: EditFn<T>) -> Self;
     fn build(
         &mut self,
         commands: &mut Commands,
@@ -26,10 +31,6 @@ impl<T: Component> RefCompBuilderExt<T> for RefCompBuilder<T> {
             insert_fn: Some(insert_fn),
             edit_fn: None,
         }
-    }
-    fn with_edit_fn(mut self, edit_fn: EditFn<T>) -> Self {
-        self.edit_fn = Some(edit_fn);
-        self
     }
 
     fn build(
@@ -53,7 +54,6 @@ impl<T: Component> RefCompBuilderExt<T> for RefCompBuilder<T> {
 
 pub trait RefCompBuilderFromWorldExt<T: Component + FromWorld> {
     fn new(entity: Entity) -> Self;
-    fn with_edit_fn(self, edit_fn: EditFn<T>) -> Self;
     fn with_insert_fn(self, insert_fn: InsertFn<T>) -> Self;
     fn build(
         &mut self,
@@ -70,10 +70,6 @@ impl<T: Component + FromWorld> RefCompBuilderFromWorldExt<T> for RefCompBuilder<
             insert_fn: None,
             edit_fn: None,
         }
-    }
-    fn with_edit_fn(mut self, edit_fn: EditFn<T>) -> Self {
-        self.edit_fn = Some(edit_fn);
-        self
     }
 
     fn with_insert_fn(mut self, insert_fn: InsertFn<T>) -> Self {
