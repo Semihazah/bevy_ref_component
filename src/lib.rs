@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 mod tests;
 
 mod builder;
-pub use builder::{RefCompBuilder, RefCompBuilderExt, RefCompBuilderFromWorldExt};
+pub use builder::RefCompBuilder;
 
 type InsertFn<T> = fn(&mut World, Entity) -> T;
 type EditFn<T> = fn(&mut World, Entity, &mut T);

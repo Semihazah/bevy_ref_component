@@ -1,8 +1,6 @@
 use bevy::prelude::*;
 
-use crate::{
-    RefCompBuilder, RefCompBuilderExt, RefCompExt, RefCompHandle, RefCompPlugin, RefCompServer,
-};
+use crate::{RefCompBuilder, RefCompExt, RefCompHandle, RefCompPlugin, RefCompServer};
 
 /// Tests if the RefCompServer will insert components that do not currently exist,
 /// and if it will remove components that are no longer referenced
