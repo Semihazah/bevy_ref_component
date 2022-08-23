@@ -22,6 +22,11 @@ impl<T: Component> RefCompBuilder<T> {
         self
     }
 
+    pub fn with_insert_fn(mut self, insert_fn: InsertFn<T>) -> Self {
+        self.insert_fn = insert_fn;
+        self
+    }
+
     pub fn build(
         &mut self,
         commands: &mut Commands,
@@ -35,11 +40,24 @@ impl<T: Component> RefCompBuilder<T> {
     }
 }
 
-impl<T: Component + FromWorld> RefCompBuilder<T> {
+impl <T: Component + FromWorld> RefCompBuilder<T> {
     pub fn new_fw(entity: Entity) -> Self {
         RefCompBuilder {
             entity,
             insert_fn: |world: &mut World, _entity| T::from_world(world),
+            edit_fn: None,
+        }
+    }
+}
+pub trait RefCompBuilderExt<T: Component> {
+    fn new(entity: Entity, insert_fn: InsertFn<T>) -> Self;
+}
+
+impl<T: Component> RefCompBuilderExt<T> for RefCompBuilder<T> {
+    fn new(entity: Entity, insert_fn: InsertFn<T>) -> Self {
+        RefCompBuilder {
+            entity,
+            insert_fn,
             edit_fn: None,
         }
     }
