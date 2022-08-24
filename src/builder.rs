@@ -40,7 +40,7 @@ impl<T: Component> RefCompBuilder<T> {
     }
 }
 
-impl <T: Component + FromWorld> RefCompBuilder<T> {
+impl<T: Component + FromWorld> RefCompBuilder<T> {
     pub fn new_fw(entity: Entity) -> Self {
         RefCompBuilder {
             entity,

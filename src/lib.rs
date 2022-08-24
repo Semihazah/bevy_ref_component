@@ -61,25 +61,29 @@ impl RefCompServer {
         entity: Entity,
         edit_fn: Option<EditFn<T>>,
     ) -> RefCompHandle<T> {
-        let ref_counts = &self.ref_counts;
         let handle_id = RefCompHandleId::new::<T>(entity);
 
-        if !ref_counts.contains_key(&handle_id) {
-            if !self.comp_spawner.contains_key(&handle_id.type_id) {
-                self.comp_spawner.insert(
-                    type_name::<T>().to_string(),
-                    RefComponentSpawner {
-                        delete: delete_component::<T>,
-                    },
-                );
+        if !self.comp_spawner.contains_key(&handle_id.type_id) {
+            self.comp_spawner.insert(
+                type_name::<T>().to_string(),
+                RefComponentSpawner {
+                    delete: delete_component::<T>,
+                },
+            );
+        }
+
+        match world.entity(handle_id.entity).contains::<T>() {
+            true => {
+                if let Some(edit_fn) = edit_fn {
+                    if let Some(mut comp) = world.entity_mut(entity).remove::<T>() {
+                        edit_fn(world, entity, &mut comp);
+                        world.entity_mut(entity).insert(comp);
+                    }
+                }
             }
-            let comp = T::from_world(world);
-            world.entity_mut(handle_id.entity).insert(comp);
-        } else if let Some(edit_fn) = edit_fn {
-            let entity = handle_id.entity;
-            if let Some(mut comp) = world.entity_mut(entity).remove::<T>() {
-                edit_fn(world, entity, &mut comp);
-                world.entity_mut(entity).insert(comp);
+            false => {
+                let comp = T::from_world(world);
+                world.entity_mut(handle_id.entity).insert(comp);
             }
         }
         self.get_handle(handle_id)
@@ -92,27 +96,32 @@ impl RefCompServer {
         insert_fn: InsertFn<T>,
         edit_fn: Option<EditFn<T>>,
     ) -> RefCompHandle<T> {
-        let ref_counts = &self.ref_counts;
         let handle_id = RefCompHandleId::new::<T>(entity);
 
-        if !ref_counts.contains_key(&handle_id) {
-            if !self.comp_spawner.contains_key(&handle_id.type_id) {
-                self.comp_spawner.insert(
-                    type_name::<T>().to_string(),
-                    RefComponentSpawner {
-                        delete: delete_component::<T>,
-                    },
-                );
+        if !self.comp_spawner.contains_key(&handle_id.type_id) {
+            self.comp_spawner.insert(
+                type_name::<T>().to_string(),
+                RefComponentSpawner {
+                    delete: delete_component::<T>,
+                },
+            );
+        }
+
+        match world.entity(handle_id.entity).contains::<T>() {
+            true => {
+                if let Some(edit_fn) = edit_fn {
+                    if let Some(mut comp) = world.entity_mut(entity).remove::<T>() {
+                        edit_fn(world, entity, &mut comp);
+                        world.entity_mut(entity).insert(comp);
+                    }
+                }
             }
-            let comp = insert_fn(world, handle_id.entity);
-            world.entity_mut(handle_id.entity).insert(comp);
-        } else if let Some(edit_fn) = edit_fn {
-            let entity = handle_id.entity;
-            if let Some(mut comp) = world.entity_mut(entity).remove::<T>() {
-                edit_fn(world, entity, &mut comp);
-                world.entity_mut(entity).insert(comp);
+            false => {
+                let comp = insert_fn(world, handle_id.entity);
+                world.entity_mut(handle_id.entity).insert(comp);
             }
         }
+
         self.get_handle(handle_id)
     }
 
@@ -122,31 +131,34 @@ impl RefCompServer {
         entity: Entity,
         edit_fn: Option<EditFn<T>>,
     ) -> RefCompHandle<T> {
-        let ref_counts = &self.ref_counts;
         let handle_id = RefCompHandleId::new::<T>(entity);
 
-        if !ref_counts.contains_key(&handle_id) {
-            if !self.comp_spawner.contains_key(&handle_id.type_id) {
-                self.comp_spawner.insert(
-                    type_name::<T>().to_string(),
-                    RefComponentSpawner {
-                        delete: delete_component::<T>,
-                    },
-                );
-            }
-            commands.add(move |world: &mut World| {
-                let comp = T::from_world(world);
-                world.entity_mut(handle_id.entity).insert(comp);
-            });
-        } else if let Some(edit_fn) = edit_fn {
-            let entity = handle_id.entity;
-            commands.add(move |world: &mut World| {
-                if let Some(mut comp) = world.entity_mut(entity).remove::<T>() {
-                    edit_fn(world, entity, &mut comp);
-                    world.entity_mut(entity).insert(comp);
-                }
-            })
+        if !self.comp_spawner.contains_key(&handle_id.type_id) {
+            self.comp_spawner.insert(
+                type_name::<T>().to_string(),
+                RefComponentSpawner {
+                    delete: delete_component::<T>,
+                },
+            );
         }
+
+        commands.add(move |world: &mut World| {
+            match world.entity(handle_id.entity).contains::<T>() {
+                true => {
+                    if let Some(edit_fn) = edit_fn {
+                        if let Some(mut comp) = world.entity_mut(entity).remove::<T>() {
+                            edit_fn(world, entity, &mut comp);
+                            world.entity_mut(entity).insert(comp);
+                        }
+                    }
+                }
+                false => {
+                    let comp = T::from_world(world);
+                    world.entity_mut(handle_id.entity).insert(comp);
+                }
+            }
+        });
+
         self.get_handle(handle_id)
     }
 
@@ -157,31 +169,34 @@ impl RefCompServer {
         insert_fn: InsertFn<T>,
         edit_fn: Option<EditFn<T>>,
     ) -> RefCompHandle<T> {
-        let ref_counts = &self.ref_counts;
         let handle_id = RefCompHandleId::new::<T>(entity);
 
-        if !ref_counts.contains_key(&handle_id) {
-            if !self.comp_spawner.contains_key(&handle_id.type_id) {
-                self.comp_spawner.insert(
-                    type_name::<T>().to_string(),
-                    RefComponentSpawner {
-                        delete: delete_component::<T>,
-                    },
-                );
-            }
-            commands.add(move |world: &mut World| {
-                let comp = insert_fn(world, entity);
-                world.entity_mut(entity).insert(comp);
-            });
-        } else if let Some(edit_fn) = edit_fn {
-            let entity = handle_id.entity;
-            commands.add(move |world: &mut World| {
-                if let Some(mut comp) = world.entity_mut(entity).remove::<T>() {
-                    edit_fn(world, entity, &mut comp);
-                    world.entity_mut(entity).insert(comp);
-                }
-            })
+        if !self.comp_spawner.contains_key(&handle_id.type_id) {
+            self.comp_spawner.insert(
+                type_name::<T>().to_string(),
+                RefComponentSpawner {
+                    delete: delete_component::<T>,
+                },
+            );
         }
+
+        commands.add(move |world: &mut World| {
+            match world.entity(handle_id.entity).contains::<T>() {
+                true => {
+                    if let Some(edit_fn) = edit_fn {
+                        if let Some(mut comp) = world.entity_mut(entity).remove::<T>() {
+                            edit_fn(world, entity, &mut comp);
+                            world.entity_mut(entity).insert(comp);
+                        }
+                    }
+                }
+                false => {
+                    let comp = insert_fn(world, entity);
+                    world.entity_mut(handle_id.entity).insert(comp);
+                }
+            }
+        });
+
         self.get_handle(handle_id)
     }
 }
