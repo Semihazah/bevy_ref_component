@@ -4,7 +4,7 @@ use bevy::{
     ecs::reflect::ReflectComponent,
     prelude::{
         App, Commands, Component, CoreStage, Entity, FromWorld, Mut, Plugin, Query, ResMut,
-        StageLabel, SystemStage, World,
+        StageLabel, SystemStage, World, Resource,
     },
     reflect::{FromReflect, Reflect, ReflectDeserialize, ReflectSerialize},
     utils::HashMap,
@@ -37,7 +37,7 @@ impl Plugin for RefCompPlugin {
 // *****************************************************************************************
 // Resources
 // *****************************************************************************************
-#[derive(Default)]
+#[derive(Default, Resource)]
 pub struct RefCompServer {
     channel: RefChangeChannel,
     ref_counts: HashMap<RefCompHandleId, usize>,

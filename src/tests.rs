@@ -10,11 +10,11 @@ fn test_insert() {
 
     app.add_plugin(RefCompPlugin).add_startup_system(
         |mut commands: Commands, mut ref_comp_server: ResMut<RefCompServer>| {
-            let foo_ent = commands.spawn().id();
+            let foo_ent = commands.spawn_empty().id();
             commands.insert_resource(EntityRef(foo_ent));
 
             let handle = ref_comp_server.insert_ref_comp_fw::<Foo>(&mut commands, foo_ent, None);
-            commands.insert_resource(handle);
+            commands.insert_resource(FooHandleRes1(handle));
         },
     );
 
@@ -24,7 +24,7 @@ fn test_insert() {
     let foo_ent = world.resource::<EntityRef>();
     assert!(world.entity(foo_ent.0).contains::<Foo>());
 
-    world.remove_resource::<RefCompHandle<Foo>>();
+    world.remove_resource::<FooHandleRes1>();
     app.update();
 
     let world = &mut app.world;
@@ -39,12 +39,12 @@ fn test_multi_remove() {
 
     app.add_plugin(RefCompPlugin).add_startup_system(
         |mut commands: Commands, mut ref_comp_server: ResMut<RefCompServer>| {
-            let foo_ent = commands.spawn().id();
+            let foo_ent = commands.spawn_empty().id();
             commands.insert_resource(EntityRef(foo_ent));
 
             let handle = ref_comp_server.insert_ref_comp_fw::<Foo>(&mut commands, foo_ent, None);
-            commands.insert_resource(handle.clone());
-            commands.insert_resource(FooHandleRes(handle));
+            commands.insert_resource(FooHandleRes1(handle.clone()));
+            commands.insert_resource(FooHandleRes2(handle));
         },
     );
 
@@ -54,7 +54,7 @@ fn test_multi_remove() {
     let foo_ent = world.resource::<EntityRef>();
     assert!(world.entity(foo_ent.0).contains::<Foo>());
 
-    world.remove_resource::<RefCompHandle<Foo>>();
+    world.remove_resource::<FooHandleRes1>();
     app.update();
 
     let world = &mut app.world;
@@ -70,7 +70,7 @@ fn test_insert_function() {
 
     app.add_plugin(RefCompPlugin).add_startup_system(
         |mut commands: Commands, mut ref_comp_server: ResMut<RefCompServer>| {
-            let entity = commands.spawn().id();
+            let entity = commands.spawn_empty().id();
             commands.insert_resource(EntityRef(entity));
 
             let handle = ref_comp_server.insert_ref_comp::<Bar>(
@@ -82,7 +82,7 @@ fn test_insert_function() {
                 },
                 None,
             );
-            commands.insert_resource(handle.clone());
+            commands.insert_resource(BarHandleRes1(handle));
         },
     );
 
@@ -94,7 +94,7 @@ fn test_insert_function() {
     assert!(bar.integer == 42);
     assert!(bar.string == "I am a test string!");
 
-    world.remove_resource::<RefCompHandle<Bar>>();
+    world.remove_resource::<BarHandleRes1>();
     app.update();
 
     let world = &mut app.world;
@@ -110,7 +110,7 @@ fn test_insert_function_overwrite() {
 
     app.add_plugin(RefCompPlugin).add_startup_system(
         |mut commands: Commands, mut ref_comp_server: ResMut<RefCompServer>| {
-            let entity = commands.spawn().id();
+            let entity = commands.spawn_empty().id();
             commands.insert_resource(EntityRef(entity));
 
             let handle = ref_comp_server.insert_ref_comp::<Bar>(
@@ -122,7 +122,7 @@ fn test_insert_function_overwrite() {
                 },
                 None,
             );
-            commands.insert_resource(handle.clone());
+            commands.insert_resource(BarHandleRes1(handle.clone()));
         },
     );
 
@@ -139,7 +139,7 @@ fn test_insert_function_overwrite() {
         None,
     );
 
-    world.insert_resource(BarHandleRes(handle));
+    world.insert_resource(BarHandleRes2(handle));
 
     app.update();
 
@@ -149,7 +149,7 @@ fn test_insert_function_overwrite() {
     assert!(bar.integer == 42);
     assert!(bar.string == "I am a test string!");
 
-    world.remove_resource::<RefCompHandle<Bar>>();
+    world.remove_resource::<BarHandleRes1>();
 
     app.update();
 
@@ -166,7 +166,7 @@ fn test_insert_edit_function() {
 
     app.add_plugin(RefCompPlugin).add_startup_system(
         |mut commands: Commands, mut ref_comp_server: ResMut<RefCompServer>| {
-            let entity = commands.spawn().id();
+            let entity = commands.spawn_empty().id();
             commands.insert_resource(EntityRef(entity));
 
             let handle = ref_comp_server.insert_ref_comp::<Bar>(
@@ -178,7 +178,7 @@ fn test_insert_edit_function() {
                 },
                 None,
             );
-            commands.insert_resource(handle.clone());
+            commands.insert_resource(BarHandleRes2(handle.clone()));
         },
     );
 
@@ -198,7 +198,7 @@ fn test_insert_edit_function() {
         }),
     );
 
-    world.insert_resource(BarHandleRes(handle));
+    world.insert_resource(BarHandleRes1(handle));
 
     app.update();
 
@@ -215,7 +215,7 @@ fn test_builder() {
 
     app.add_plugin(RefCompPlugin).add_startup_system(
         |mut commands: Commands, mut ref_comp_server: ResMut<RefCompServer>| {
-            let entity = commands.spawn().id();
+            let entity = commands.spawn_empty().id();
             commands.insert_resource(EntityRef(entity));
 
             let handle = RefCompBuilder::new(entity, |_world, _entity| Bar {
@@ -232,7 +232,7 @@ fn test_builder() {
                 },
                 None,
             ); */
-            commands.insert_resource(handle.clone());
+            commands.insert_resource(BarHandleRes1(handle.clone()));
         },
     );
 
@@ -244,7 +244,7 @@ fn test_builder() {
     assert!(bar.integer == 42);
     assert!(bar.string == "I am a test string!");
 
-    world.remove_resource::<RefCompHandle<Bar>>();
+    world.remove_resource::<BarHandleRes1>();
     app.update();
 
     let world = &mut app.world;
@@ -255,9 +255,14 @@ fn test_builder() {
 #[derive(Component, Default)]
 struct Foo;
 
+#[derive(Resource)]
 struct EntityRef(Entity);
 
-struct FooHandleRes(RefCompHandle<Foo>);
+#[derive(Resource)]
+struct FooHandleRes1(RefCompHandle<Foo>);
+
+#[derive(Resource)]
+struct FooHandleRes2(RefCompHandle<Foo>);
 
 #[derive(Component, Default)]
 struct Bar {
@@ -265,4 +270,8 @@ struct Bar {
     integer: u32,
 }
 
-struct BarHandleRes(RefCompHandle<Bar>);
+#[derive(Resource)]
+struct BarHandleRes1(RefCompHandle<Bar>);
+
+#[derive(Resource)]
+struct BarHandleRes2(RefCompHandle<Bar>);
