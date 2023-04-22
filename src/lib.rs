@@ -3,8 +3,9 @@ use std::{any::type_name, marker::PhantomData};
 use bevy::{
     ecs::reflect::ReflectComponent,
     prelude::{
-        App, Commands, Component, CoreStage, Entity, FromWorld, Mut, Plugin, Query, ResMut,
-        StageLabel, SystemStage, World, Resource,
+        apply_system_buffers, App, Commands, Component, CoreSet, Entity, FromWorld,
+        IntoSystemConfig, IntoSystemSetConfigs, Mut, Plugin, Query, ResMut, Resource, SystemSet,
+        World,
     },
     reflect::{FromReflect, Reflect, ReflectDeserialize, ReflectSerialize},
     utils::HashMap,
@@ -24,14 +25,27 @@ type EditFn<T> = fn(&mut World, Entity, &mut T);
 
 pub struct RefCompPlugin;
 
-#[derive(StageLabel)]
-pub struct DespawnStage;
+#[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
+#[system_set(base)]
+pub enum DespawnStage {
+    Parallel,
+    CommandFlush,
+}
 
 impl Plugin for RefCompPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RefCompServer>()
-            .add_stage_after(CoreStage::Update, DespawnStage, SystemStage::parallel())
-            .add_system_to_stage(DespawnStage, delete_unreferenced_components);
+            .configure_sets(
+                (
+                    CoreSet::UpdateFlush,
+                    DespawnStage::Parallel,
+                    DespawnStage::CommandFlush,
+                    CoreSet::PostUpdate,
+                )
+                    .chain(),
+            )
+            .add_system(delete_unreferenced_components.in_base_set(DespawnStage::Parallel))
+            .add_system(apply_system_buffers.in_base_set(DespawnStage::CommandFlush));
     }
 }
 // *****************************************************************************************
@@ -75,7 +89,7 @@ impl RefCompServer {
         match world.entity(handle_id.entity).contains::<T>() {
             true => {
                 if let Some(edit_fn) = edit_fn {
-                    if let Some(mut comp) = world.entity_mut(entity).remove::<T>() {
+                    if let Some(mut comp) = world.entity_mut(entity).take::<T>() {
                         edit_fn(world, entity, &mut comp);
                         world.entity_mut(entity).insert(comp);
                     }
@@ -110,7 +124,7 @@ impl RefCompServer {
         match world.entity(handle_id.entity).contains::<T>() {
             true => {
                 if let Some(edit_fn) = edit_fn {
-                    if let Some(mut comp) = world.entity_mut(entity).remove::<T>() {
+                    if let Some(mut comp) = world.entity_mut(entity).take::<T>() {
                         edit_fn(world, entity, &mut comp);
                         world.entity_mut(entity).insert(comp);
                     }
@@ -146,7 +160,7 @@ impl RefCompServer {
             match world.entity(handle_id.entity).contains::<T>() {
                 true => {
                     if let Some(edit_fn) = edit_fn {
-                        if let Some(mut comp) = world.entity_mut(entity).remove::<T>() {
+                        if let Some(mut comp) = world.entity_mut(entity).take::<T>() {
                             edit_fn(world, entity, &mut comp);
                             world.entity_mut(entity).insert(comp);
                         }
@@ -184,7 +198,7 @@ impl RefCompServer {
             match world.entity(handle_id.entity).contains::<T>() {
                 true => {
                     if let Some(edit_fn) = edit_fn {
-                        if let Some(mut comp) = world.entity_mut(entity).remove::<T>() {
+                        if let Some(mut comp) = world.entity_mut(entity).take::<T>() {
                             edit_fn(world, entity, &mut comp);
                             world.entity_mut(entity).insert(comp);
                         }
@@ -335,7 +349,7 @@ pub struct RefCompHandleId {
 
 impl RefCompHandleId {
     #[inline]
-    pub fn default<T: Component>() -> Self {
+    pub fn default_handle<T: Component>() -> Self {
         RefCompHandleId {
             entity: Entity::from_raw(u32::MAX),
             type_id: "".to_string(),
@@ -450,7 +464,7 @@ where
 
 impl<T: Component> Default for RefCompHandle<T> {
     fn default() -> Self {
-        RefCompHandle::weak(RefCompHandleId::default::<T>())
+        RefCompHandle::weak(RefCompHandleId::default_handle::<T>())
     }
 }
 
